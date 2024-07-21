@@ -5982,6 +5982,13 @@ server <- function(input, output, session) {
               h4("Multiple locations can be selected in each view")
             )
           )
+        ), 
+        
+        fluidRow(
+          column(
+            width = 12, 
+            dataTableOutput(outputId = "ply_timestamps")
+          )
         )
       )
     } else {
@@ -6044,6 +6051,13 @@ server <- function(input, output, session) {
               h4("Reset Clicks button will reset to all shots selected"), 
               h4("Multiple locations can be selected in each view")
             )
+          )
+        ), 
+        
+        fluidRow(
+          column(
+            width = 12, 
+            dataTableOutput(outputId = "ply_timestamps")
           )
         )
       )
@@ -8759,7 +8773,7 @@ server <- function(input, output, session) {
   ##### PLY: Shot Angle Plot #####
   
   output$ply_shotangle <- renderPlotly({
-    if(length(input$ply_player) > 0 & length(which(df_master_fltr()$Season == 2023)) > 0) {
+    if(length(input$ply_player) > 0) {
       
       if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
         # Shots against if it's a goalie
@@ -9004,6 +9018,150 @@ server <- function(input, output, session) {
         ) %>% 
         event_register("plotly_click")
       
+    }
+  })
+  
+  ##### PLY: Data Filter Timestamps #####
+  
+  output$ply_timestamps <- renderDataTable({
+    if(length(input$ply_player) > 0) {
+      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+        # Shots against if it's a goalie
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+        
+        if(length(unique(shot_df$Game)) > 1) {
+          shot_df <- shot_df %>% 
+            mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
+                   Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
+                   Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
+            mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        } else {
+          shot_df <- shot_df %>% 
+            mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        }
+        
+        # Filter down by strength input
+        if(input$ply_strength == "Even-Strength") {
+          shot_df <- shot_df %>% 
+            filter(Home_Strength == Away_Strength)    
+        } else {
+          if(input$ply_strength == "Man-Advantage") {
+            shot_df <- shot_df %>% 
+              group_by(Game) %>% 
+              mutate(Side1_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                             Home_Strength, Away_Strength), 
+                     Side2_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                             Away_Strength, Home_Strength)) %>% 
+              ungroup() %>% 
+              mutate(Keep = ifelse((Defensive_Team == player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength > Side2_Strength) | (Defensive_Team != player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength < Side2_Strength), "Yes", "No")) %>% 
+              filter(Keep == "Yes")
+          } else {
+            if(input$ply_strength == "Short-Handed") {
+              shot_df <- shot_df %>% 
+                group_by(Game) %>% 
+                mutate(Side1_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                               Home_Strength, Away_Strength), 
+                       Side2_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                               Away_Strength, Home_Strength)) %>% 
+                ungroup() %>% 
+                mutate(Keep = ifelse((Defensive_Team == player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength < Side2_Strength) | (Defensive_Team != player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength > Side2_Strength), "Yes", "No")) %>% 
+                filter(Keep == "Yes")
+            }
+          }
+        }
+      } else {
+        # shots by the player if it's a runner
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+        
+        if(length(unique(df_master_fltr()$Game)) > 1) {
+          if(input$ply_season != "Cumulative") {
+            shot_df <- shot_df %>%
+              filter(Season %in% input$ply_season)
+          }
+        }
+        
+        # Filter down by strength input
+        if(input$ply_strength == "Even-Strength") {
+          shot_df <- shot_df %>% 
+            filter(Home_Strength == Away_Strength)    
+        } else {
+          if(input$ply_strength == "Man-Advantage") {
+            shot_df <- shot_df %>% 
+              group_by(Game) %>% 
+              mutate(Side1_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                             Home_Strength, Away_Strength), 
+                     Side2_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                             Away_Strength, Home_Strength)) %>% 
+              ungroup() %>% 
+              mutate(Keep = ifelse((Team == player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength > Side2_Strength) | (Team != player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength < Side2_Strength), "Yes", "No")) %>% 
+              filter(Keep == "Yes")
+          } else {
+            if(input$ply_strength == "Short-Handed") {
+              shot_df <- shot_df %>% 
+                group_by(Game) %>% 
+                mutate(Side1_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                               Home_Strength, Away_Strength), 
+                       Side2_Strength = ifelse(Home_Team == player_list()$Team[player_list()$Player_Name == input$ply_player], 
+                                               Away_Strength, Home_Strength)) %>% 
+                ungroup() %>% 
+                mutate(Keep = ifelse((Team == player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength < Side2_Strength) | (Team != player_list()$Team[player_list()$Player_Name == input$ply_player] & Side1_Strength > Side2_Strength), "Yes", "No")) %>% 
+                filter(Keep == "Yes")
+            }
+          }
+        }
+      } 
+      
+      # Filter by click selections
+      if(ply_goal_sel$Net_Location[1] != "none"){
+        shot_df <- shot_df %>% 
+          filter(Net_Location %in% ply_goal_sel$Net_Location)
+      }
+      
+      if(ply_shotangle_sel$Shot_Angle_Bin[1] != "none") {
+        shot_df <- shot_df %>% 
+          filter(Shot_Angle != "NA") %>% 
+          mutate(Shot_Angle_Bin = ifelse(Shot_Angle == "Dive/Other", "Dive/Other", 
+                                         ifelse(as.numeric(Shot_Angle) < 60, "LowRight", 
+                                                ifelse(as.numeric(Shot_Angle) < 120, "MidRight", 
+                                                       ifelse(as.numeric(Shot_Angle) < 180, "HighRight", 
+                                                              ifelse(180 & as.numeric(Shot_Angle) < 240, "HighLeft", 
+                                                                     ifelse(as.numeric(Shot_Angle) < 300, "MidLeft", "LowLeft"))))))) %>%
+          filter(Shot_Angle_Bin %in% ply_shotangle_sel$Shot_Angle_Bin)
+      }
+      
+      if(ply_field_sel$Field_Location_Bin[1] != "none"){
+        shot_df <- shot_df %>% 
+          filter(Field_Location_Bin %in% ply_field_sel$Field_Location_Bin)
+      }
+      
+      shot_df <- shot_df %>% 
+        select(Game, Quarter, Game_Clock, Player1_Name, Result, Goalie_Response, Shot_Type, 
+               Primary_Assist_Name, Secondary_Assist_Name, Rebound_Type, Rebound_Name) %>%
+        rename('Timestamp' = Game_Clock, 
+               'Shooter' = Player1_Name, 
+               'Goalie Response' = Goalie_Response, 
+               'Creation' = Shot_Type, 
+               'Prim. Assist' = Primary_Assist_Name, 
+               'Sec. Assist' = Secondary_Assist_Name, 
+               'Reb.' = Rebound_Type, 
+               'Reb. Player' = Rebound_Name)
+      
+      datatable(shot_df, 
+                options = list(
+                  paging = TRUE,
+                  pageLength = 10, 
+                  autowidth = FALSE, 
+                  searching = FALSE, 
+                  info = FALSE, 
+                  scrollX = TRUE
+                ), 
+                rownames = FALSE
+      )
     }
   })
   
