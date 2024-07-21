@@ -1,0 +1,159 @@
+/* STYLE SHEET */
+
+
+
+/* Fonts */
+
+
+@font-face {
+  font-family: "Heading";
+  src: url("Fonts/JosefinSans/JosefinSans-Bold.ttf");
+}
+
+@font-face {
+  font-family: "Body";
+  src: url("Fonts/Montserrat/Montserrat-Regular.ttf");
+}
+
+
+/* Gloabl Styles */
+
+body {
+	font-family: Body; 
+}
+
+.well {
+  background-color: white;
+  box-shadow: none;
+  border-color: #033876; 
+  text-align: center;
+}
+
+.dropdown-menu {
+  z-index: 1002;
+}
+
+
+/* Selection Boxes */
+
+#team_summary_bttn,
+#team_vs_team_bttn,
+#individual_game_bttn, 
+#team_summary_submit, 
+#team_vs_team_submit,
+#individual_game_submit {
+  font-family: Heading; 
+  font-size: 20px;
+}
+
+.shiny-input-container {
+  font-family: Body; 
+}
+
+.top_grid_logo {
+  margin-top: -15px;
+  veritcal-align: top;
+}
+
+/* Header */
+
+
+.navbar-default {
+  background-color: #FFFFFF; 
+  display:flex;
+  align-items: center;
+  flex-direction:column;
+  margin:auto;
+  padding-top: 10px;
+}
+
+.navbar-default .navbar-nav > li {
+  font-family: Heading; 
+  font-size: 20px;
+}
+
+.navbar-default .navbar-nav > li > a {
+  background-color: #FFFFFF; 
+  color: #033876; 
+  padding-top: 10px;
+  padding-right: 15px; 
+  padding-left: 15px; 
+  margin-right: 7px; 
+  margin-left: 7px; 
+  height: 40px;
+}
+
+.navbar-default .navbar-nav > li > a:hover {
+  background-color: #4b86cb; 
+  color: white; 
+  border-radius: 4px;
+  padding-top: 10px;
+  height: 40px;
+}
+
+.navbar-default .navbar-nav > .active > a, 
+.navbar-default .navbar-nav > .active > a:focus, 
+.navbar-default .navbar-nav > .active > a:hover {
+  background-color: #4b86cb; 
+  color: white; 
+  border-radius: 4px;
+  padding-top: 10px;
+  height: 40px;
+}
+
+.navbar-static-top {
+  border-color: white;
+}
+
+.h1, .h2, .h3, h1, h2, h3 {
+  font-family: Heading;
+  color: #033876; 
+  text-align: center;
+}
+
+.h4, .h5, .h6, h4, h5, h6 {
+  font-family: Body;
+  color: #033876; 
+  text-align: center;
+}
+
+.ply_player_title_logo {
+  vertical-align: top;
+  display: inline-block; 
+}
+
+.ply_player_title_num {
+  font-family: Heading;
+  font-size: 87px;
+  vertical-align: top;
+  display: inline-block; 
+  padding-top: 1px;
+}
+
+.ply_player_title_name {
+  font-family: Body;
+  font-size: 80px;
+  vertical-align: top;
+  display: inline-block; 
+  padding-top: 0px;
+}
+
+.col-sm-2,
+.col-sm-3, 
+.col-sm-4, 
+.col-sm-6,
+.col-sm-8,  
+.col-sm-12 {
+  text-align: center;
+}
+
+hr {
+  border-color: #033876;
+}
+
+thead {
+  font-family: Heading; 
+  font-size: 16px;
+}
+
+

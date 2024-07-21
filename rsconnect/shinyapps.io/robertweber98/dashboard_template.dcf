@@ -1,0 +1,11 @@
+name: dashboard_template
+title:
+username:
+account: robertweber98
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6150160
+bundleId: 6616091
+url: https://robertweber98.shinyapps.io/dashboard_template/
+when: 1670598861.9598
+lastSyncTime: 1670598861.9598

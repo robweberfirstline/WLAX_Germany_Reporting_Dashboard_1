@@ -1,0 +1,16 @@
+Net_Location,Dot_Loc_x,Dot_Loc_y,Ratio_Loc_x,Ratio_Loc_y,Percentage_Loc_x,Percentage_Loc_y,Goal_Possible
+5-Hole,0.5,0.155,0.5,0.18,0.5,0.13,Yes
+Chest,0.5,0.5,0.5,0.5,,,No
+Crossbar,0.5,0.75,0.5,0.75,,,No
+Empty Net,,,,,,,No
+Left Leg,0.3,0.155,0.3,0.18,0.3,0.13,Yes
+Left Miss,0.03,0.395,0.03,0.395,,,No
+Left Shoulder,0.3,0.62,0.3,0.645,0.3,0.595,Yes
+Left Post,0.174,0.395,0.174,0.395,,,No
+Under Left Arm,0.34,0.395,0.34,0.42,0.34,0.37,Yes
+Right Leg,0.7,0.155,0.7,0.18,0.7,0.13,Yes
+Right Miss,0.97,0.395,0.97,0.395,,,No
+Right Shoulder,0.7,0.62,0.7,0.645,0.7,0.595,Yes
+Right Post,0.826,0.395,0.826,0.395,,,No
+Under Right Arm,0.66,0.395,0.66,0.42,0.66,0.37,Yes
+Top Miss,0.5,0.92,0.5,0.92,,,No
