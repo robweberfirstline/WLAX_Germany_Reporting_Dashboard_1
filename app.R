@@ -352,9 +352,9 @@ server <- function(input, output, session) {
     
     # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
     df_mf_sides <- df_mf %>% 
-      filter(Quarter %in% c(1, 3) & !is.na(Team)) %>% 
+      filter(!is.na(Team)) %>% 
       group_by(Game, Team) %>% 
-      summarise(Field_Side = ifelse(length(which(Location1_x < 0.5)) > length(which(Location1_x > 0.5)), "West", "East"))
+      summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
     
     # normalize the event locations so that they're always with respect to the same side of the field for either team
     # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
@@ -621,13 +621,6 @@ server <- function(input, output, session) {
     
     df_player <- df_master_fltr()
     
-    if(length(unique(df_master_fltr()$Game)) > 1) {
-      if(input$ply_season != "Cumulative") {
-        df_player <- df_player %>%
-          filter(Season %in% input$ply_season)
-      }
-    }
-    
     df1 <- df_player %>% 
       filter(!is.na(Player1_Name)) %>% 
       group_by(Team, Player1, Player1_Name) %>% 
@@ -699,13 +692,17 @@ server <- function(input, output, session) {
              "Team" = Away_Team)
     
     df_player2 <- rbind(df1, df2, df3, df4, df5, df6, df7, df8, df9)
+    df_player2 <- left_join(df_player2, df_team_info %>% select(Team, Team_Type), by = "Team")
     df_player2 <- df_player2 %>% 
-      group_by(Player_Name, Team, Player_Num) %>% 
-      summarise(Max_Date = max(Max_Date))
+      mutate(Max_Date = ifelse(Team_Type == "Club", ymd("1900-01-01"), Max_Date)) %>% 
+      mutate(Max_Date = as_date(Max_Date))
     df_player2 <- df_player2 %>% 
       group_by(Player_Name) %>% 
-      summarise(Team = Team[which(Max_Date == max(Max_Date))], 
-                Player_Num = Player_Num[which(Max_Date == max(Max_Date))])
+      mutate(Player_Max_Date = max(as_date(Max_Date))) 
+    df_player2 <- df_player2 %>% 
+      group_by(Player_Name) %>% 
+      summarise(Team = max(Team[which(Max_Date == Player_Max_Date)]), 
+                Player_Num = max(Player_Num[which(Max_Date == Player_Max_Date)]))
     df_player2 <- df_player2 %>% 
       ungroup() %>% 
       rowwise() %>% 
@@ -751,7 +748,7 @@ server <- function(input, output, session) {
                        }")),
             pickerInput(
               inputId = "team_summary_selection", label = "Pick One Team", 
-              choices = df_team_info$Full_Name[which(df_team_info$Full_Name != "World Lacrosse")], 
+              choices = df_team_info$Full_Name[which(df_team_info$Team_Type == "National")], 
               selected = df_team_info$Full_Name[report_team_row]
             ), 
             fluidRow(uiOutput(outputId = "team_summary_logo"), 
@@ -971,7 +968,15 @@ server <- function(input, output, session) {
       wellPanel(
         fluidRow(
           column(
-            width = 4, 
+            width = 3, 
+            h3("COMPETITION"), 
+            pickerInput(inputId = "boxscore_comp", label = "", 
+                        choices = c("Cumulative", unique(df_master_fltr()$Competition)), 
+                        selected = "Cumulative")
+          ), 
+          
+          column(
+            width = 2, 
             h3("TOTAL OR AVG"), 
             prettyRadioButtons(inputId = "boxscore_total_avg", label = "", 
                                choices = c("Totals", "Averages"), 
@@ -981,7 +986,7 @@ server <- function(input, output, session) {
           ), 
           
           column(
-            width = 4, 
+            width = 3, 
             h3("STATE"), 
             prettyRadioButtons(inputId = "boxscore_state", label = "", 
                                choices = c("All", "Set", "Transition"), 
@@ -1049,6 +1054,13 @@ server <- function(input, output, session) {
       if(length(unique(df_master_fltr()$Team)) > 2) {
         shot_df <- shot_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team))
+      }
+      
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
       }
       
       # Filter down by strength input
@@ -1184,6 +1196,13 @@ server <- function(input, output, session) {
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team))
       }
       
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
+      
       # Filter down by strength input
       if(input$boxscore_strength == "Even-Strength") {
         shot_df <- shot_df %>% 
@@ -1292,7 +1311,7 @@ server <- function(input, output, session) {
       )
     }
   })
-
+  
   ##### BOX: Reb/TO Table Logo Side1 #####
   
   output$boxscore_rebto_logo_side1 <- renderUI({
@@ -1309,6 +1328,13 @@ server <- function(input, output, session) {
     if(length(input$boxscore_strength) > 0) {
       
       rdf_df <- df_master_fltr()
+      
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
       
       ## Rebounds
       
@@ -1540,6 +1566,13 @@ server <- function(input, output, session) {
     if(length(input$boxscore_strength) > 0) {
       
       rdf_df <- df_master_fltr()
+      
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
       
       ## Rebounds
       
@@ -1788,6 +1821,13 @@ server <- function(input, output, session) {
       
       rdf_df <- df_master_fltr()
       
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
+      
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df2 <- rdf_df %>%
           mutate(FO_Winning_Team = ifelse(FO_Winning_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", FO_Winning_Team)) %>% 
@@ -1892,6 +1932,13 @@ server <- function(input, output, session) {
       
       rdf_df <- df_master_fltr()
       
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
+      
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df2 <- rdf_df %>%
           mutate(FO_Winning_Team = ifelse(FO_Winning_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", FO_Winning_Team)) %>% 
@@ -1995,6 +2042,13 @@ server <- function(input, output, session) {
       
       shot_df <- df_master_fltr()
       
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
+      
       shot_df <- shot_df %>%
         filter(Event_Type == "Shot") %>% 
         filter(Team != df_team_info$Team[side_vars$Side1_Row]) %>% 
@@ -2089,6 +2143,13 @@ server <- function(input, output, session) {
     if(length(input$boxscore_strength) > 0) {
       
       shot_df <- df_master_fltr()
+      
+      if(length(input$boxscore_comp) > 0) {
+        if(input$boxscore_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$boxscore_comp)
+        }
+      }
       
       shot_df <- shot_df %>%
         filter(Event_Type == "Shot") %>% 
@@ -2355,12 +2416,10 @@ server <- function(input, output, session) {
         fluidRow(
           column(
             width = 3, 
-            h3("SEASON"), 
-            prettyRadioButtons(inputId = "scoring_season", label = "", 
-                               choices = c("Cumulative", unique(df_master_fltr()$Season)), 
-                               selected = as.character(max(unique(df_master_fltr()$Season))), status = "primary", shape = "round", outline = T, 
-                               fill = T, thick = T, animation = "smooth", icon = icon("check"), plain = T, 
-                               bigger = T, inline = T)
+            h3("COMPETITION"), 
+            pickerInput(inputId = "scoring_comp", label = "", 
+                        choices = c("Cumulative", unique(df_master_fltr()$Competition)), 
+                        selected = "Cumulative")
           ), 
           
           column(
@@ -2433,6 +2492,13 @@ server <- function(input, output, session) {
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
       }
       
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
+      
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
         shot_df <- shot_df %>% 
@@ -2501,6 +2567,13 @@ server <- function(input, output, session) {
       if(data_sel$Current_Selection == "Team Summary") {
         shot_df <- shot_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -2669,6 +2742,13 @@ server <- function(input, output, session) {
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
       }
       
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
+      
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
         shot_df <- shot_df %>% 
@@ -2800,6 +2880,13 @@ server <- function(input, output, session) {
       if(data_sel$Current_Selection == "Team Summary") {
         shot_df <- shot_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -2945,6 +3032,13 @@ server <- function(input, output, session) {
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
       }
       
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
+      
       if(length(input$scoring_season) > 0) {
         if(input$scoring_season != "Cumulative") {
           shot_df <- shot_df %>%
@@ -3025,6 +3119,13 @@ server <- function(input, output, session) {
       if(data_sel$Current_Selection == "Team Summary") {
         shot_df <- shot_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -3191,10 +3292,10 @@ server <- function(input, output, session) {
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
       }
       
-      if(length(input$scoring_season) > 0) {
-        if(input$scoring_season != "Cumulative") {
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
           shot_df <- shot_df %>%
-            filter(Season %in% input$scoring_season)
+            filter(Competition %in% input$scoring_comp)
         }
       }
       
@@ -3327,6 +3428,13 @@ server <- function(input, output, session) {
       if(data_sel$Current_Selection == "Team Summary") {
         shot_df <- shot_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -3466,6 +3574,13 @@ server <- function(input, output, session) {
       shot_df <- df_master_fltr() %>% 
         filter(Team == df_team_info$Team[side_vars$Side1_Row]) %>% 
         filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
@@ -3695,6 +3810,13 @@ server <- function(input, output, session) {
         filter(Team == df_team_info$Team[side_vars$Side1_Row]) %>% 
         filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
       
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
+      
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
         shot_df <- shot_df %>% 
@@ -3902,6 +4024,13 @@ server <- function(input, output, session) {
       shot_df <- df_master_fltr() %>% 
         filter(Team == df_team_info$Team[side_vars$Side1_Row]) %>% 
         filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
@@ -4124,6 +4253,13 @@ server <- function(input, output, session) {
         shot_df <- df_master_fltr() %>% 
           filter(Team == df_team_info$Team[side_vars$Side2_Row]) %>% 
           filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -4360,6 +4496,13 @@ server <- function(input, output, session) {
           filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
       }
       
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
+      }
+      
       # Filter down by strength input
       if(input$scoring_strength == "Even-Strength") {
         shot_df <- shot_df %>% 
@@ -4573,6 +4716,13 @@ server <- function(input, output, session) {
         shot_df <- df_master_fltr() %>% 
           filter(Team == df_team_info$Team[side_vars$Side2_Row]) %>% 
           filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+      }
+      
+      if(length(input$scoring_comp) > 0) {
+        if(input$scoring_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$scoring_comp)
+        }
       }
       
       # Filter down by strength input
@@ -4816,9 +4966,23 @@ server <- function(input, output, session) {
   ##### RDF: Tab UI #####
   
   output$rdf_tab <- renderUI({
-    if(data_sel$Current_Selection == "Team Summary") {
+    if(lastest_submit$Current_Submission == "Team Summary") {
       fluidPage(
         fluidRow(
+          column(12, 
+                 wellPanel(
+                   fluidRow(
+                     column(
+                       width = 4, offset = 4, 
+                       h3("COMPETITION"), 
+                       pickerInput(inputId = "rdf_comp", label = "", 
+                                   choices = c("Cumulative", unique(df_master_fltr()$Competition)), 
+                                   selected = "Cumulative")
+                     )
+                   )
+                 )
+          ), 
+          
           column(12,
                  wellPanel(
                    fluidRow(
@@ -5004,7 +5168,14 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Rebound_Type %in% c("Offensive", "Defensive"))
       
-      if(data_sel$Current_Selection == "Team Summary") {
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
+      if(lastest_submit$Current_Submission == "Team Summary") {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team), 
                  Home_Team = ifelse(Home_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Home_Team), 
@@ -5074,7 +5245,14 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Rebound_Type %in% c("Offensive", "Defensive"))
       
-      if(data_sel$Current_Selection == "Team Summary") {
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
+      if(lastest_submit$Current_Submission == "Team Summary") {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team), 
                  Home_Team = ifelse(Home_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Home_Team), 
@@ -5204,7 +5382,14 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Rebound_Type %in% c("Offensive", "Defensive"))
       
-      if(data_sel$Current_Selection == "Team Summary") {
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
+      if(lastest_submit$Current_Submission == "Team Summary") {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team), 
                  Home_Team = ifelse(Home_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Home_Team), 
@@ -5262,7 +5447,7 @@ server <- function(input, output, session) {
           summarise(Total = length(which(!is.na(Result))))
       }
       
-      if(data_sel$Current_Selection == "Team Summary") {
+      if(lastest_submit$Current_Submission == "Team Summary") {
         paste(as.numeric(rdf_df$Total[rdf_df$Defensive_Team != df_team_info$Team[side_vars$Side1_Row]])[[1]], 
               "REBOUNDABLE OPPONENT SHOTS", sep = " ")
       } else {
@@ -5279,7 +5464,14 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Rebound_Type %in% c("Offensive", "Defensive"))
       
-      if(data_sel$Current_Selection == "Team Summary") {
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
+      if(lastest_submit$Current_Submission == "Team Summary") {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Team), 
                  Home_Team = ifelse(Home_Team != df_team_info$Team[side_vars$Side1_Row], "Opponent", Home_Team), 
@@ -5407,6 +5599,13 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Event_Type == "Turnover")
       
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
@@ -5483,6 +5682,13 @@ server <- function(input, output, session) {
     if(length(input$rdf_to_strength) > 0) {
       rdf_df <- df_master_fltr() %>% 
         filter(Event_Type == "Turnover")
+      
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
       
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df <- rdf_df %>% 
@@ -5638,6 +5844,13 @@ server <- function(input, output, session) {
       rdf_df <- df_master_fltr() %>% 
         filter(Event_Type == "Turnover")
       
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
+      
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df <- rdf_df %>% 
           mutate(Team = ifelse(Team != df_team_info$Team[side_vars$Side1_Row], "Opponent ", Team))
@@ -5725,6 +5938,13 @@ server <- function(input, output, session) {
     if(length(input$rdf_to_strength) > 0) {
       rdf_df <- df_master_fltr() %>% 
         filter(Event_Type == "Turnover")
+      
+      if(length(input$rdf_comp) > 0) {
+        if(input$rdf_comp != "Cumulative") {
+          rdf_df <- rdf_df %>%
+            filter(Competition %in% input$rdf_comp)
+        }
+      }
       
       if(length(unique(df_master_fltr()$Team)) > 2) {
         rdf_df <- rdf_df %>% 
@@ -5904,7 +6124,100 @@ server <- function(input, output, session) {
   ##### PLY: Tab UI #####
   
   output$ply_tab <- renderUI({
-    if(length(unique(df_master_fltr()$Game)) > 1) {
+    if(lastest_submit$Current_Submission == "Team Summary") {
+      fluidPage(
+        fluidRow(
+          column(
+            width = 7, 
+            wellPanel(
+              fluidRow(
+                column(
+                  width = 4, 
+                  h3("PLAYER SELECTION"), 
+                  uiOutput(outputId = "ply_filter")
+                ), 
+                column(
+                  width = 8, 
+                  h3("STRENGTH"), 
+                  prettyRadioButtons(inputId = "ply_strength", label = "", 
+                                     choices = c("All", "Even-Strength", "Man-Advantage", "Short-Handed"), 
+                                     selected = "All", status = "primary", shape = "round", outline = T, 
+                                     fill = T, thick = T, animation = "smooth", icon = icon("check"), plain = T, 
+                                     bigger = T, inline = T)
+                )
+              ), 
+              style = "box-shadow: 0px 10px 5px 5px #888888; border-width: thick;"
+            )
+          ), 
+          
+          column(
+            width = 5, 
+            wellPanel(
+              fluidRow(
+                column(
+                  width = 6, 
+                  h3("COMPETITION"), 
+                  uiOutput(outputId = "ply_comp_filter")
+                ), 
+                
+                column(
+                  width = 6, 
+                  h3("TOTAL OR AVG"), 
+                  prettyRadioButtons(inputId = "ply_total_avg", label = "", 
+                                     choices = c("Totals", "Averages"), 
+                                     selected = "Totals", status = "primary", shape = "round", outline = T, 
+                                     fill = T, thick = T, animation = "smooth", icon = icon("check"), plain = T, 
+                                     bigger = T, inline = T)
+                )
+              )
+            )
+          )
+        ), 
+        
+        br(), br(), 
+        
+        fluidRow(
+          column(
+            width = 12,
+            wellPanel(
+              uiOutput(outputId = "ply_player_title"), 
+              h4(textOutput(outputId = "ply_games_note"), style = "color: red;"), 
+              br(), 
+              uiOutput(outputId = "ply_bars")
+            )
+          )
+        ), 
+        
+        fluidRow(
+          column(
+            width = 12, 
+            uiOutput(outputId = "ply_plots")
+          )
+        ), 
+        
+        fluidRow(
+          column(
+            width = 12, 
+            dropdownButton(
+              circle = FALSE, 
+              size = "lg", 
+              label = h3("CLICK INSTRUCTIONS", style = "color: red;"), 
+              up = TRUE, 
+              h4("Clicking a location on one view will show the shooting at that locaiton in the other views"), 
+              h4("Reset Clicks button will reset to all shots selected"), 
+              h4("Multiple locations can be selected in each view")
+            )
+          )
+        ), 
+        
+        fluidRow(
+          column(
+            width = 12, 
+            dataTableOutput(outputId = "ply_timestamps")
+          )
+        )
+      )
+    } else {
       fluidPage(
         fluidRow(
           column(
@@ -5991,76 +6304,6 @@ server <- function(input, output, session) {
           )
         )
       )
-    } else {
-      fluidPage(
-        fluidRow(
-          column(
-            width = 7, 
-            wellPanel(
-              fluidRow(
-                column(
-                  width = 4, 
-                  h3("PLAYER SELECTION"), 
-                  uiOutput(outputId = "ply_filter")
-                ), 
-                column(
-                  width = 8, 
-                  h3("STRENGTH"), 
-                  prettyRadioButtons(inputId = "ply_strength", label = "", 
-                                     choices = c("All", "Even-Strength", "Man-Advantage", "Short-Handed"), 
-                                     selected = "All", status = "primary", shape = "round", outline = T, 
-                                     fill = T, thick = T, animation = "smooth", icon = icon("check"), plain = T, 
-                                     bigger = T, inline = T)
-                )
-              ), 
-              style = "box-shadow: 0px 10px 5px 5px #888888; border-width: thick;"
-            )
-          )
-        ), 
-        
-        br(), br(), 
-        
-        fluidRow(
-          column(
-            width = 12,
-            wellPanel(
-              uiOutput(outputId = "ply_player_title"), 
-              h4(textOutput(outputId = "ply_games_note"), style = "color: red;"), 
-              br(), 
-              uiOutput(outputId = "ply_bars")
-            )
-          )
-        ), 
-        
-        fluidRow(
-          column(
-            width = 12, 
-            uiOutput(outputId = "ply_plots")
-          )
-        ), 
-        
-        fluidRow(
-          column(
-            width = 12, 
-            dropdownButton(
-              circle = FALSE, 
-              size = "lg", 
-              label = h3("CLICK INSTRUCTIONS", style = "color: red;"), 
-              up = TRUE, 
-              h4("Clicking a location on one view will show the shooting at that locaiton in the other views"), 
-              h4("Reset Clicks button will reset to all shots selected"), 
-              h4("Multiple locations can be selected in each view")
-            )
-          )
-        ), 
-        
-        fluidRow(
-          column(
-            width = 12, 
-            dataTableOutput(outputId = "ply_timestamps")
-          )
-        )
-      )
     }
   })
   
@@ -6082,6 +6325,30 @@ server <- function(input, output, session) {
                 options = pickerOptions(
                   liveSearch = T
                 ))
+  })
+  
+  ##### PLY: Competition Filter #####
+  
+  output$ply_comp_filter <- renderUI({
+    if(length(input$ply_player) > 0) {
+      
+      gp_df <- df_master
+      gp1 <- gp_df %>% filter(Player1_Name == input$ply_player)
+      gp2 <- gp_df %>% filter(Primary_Assist_Name == input$ply_player)
+      gp3 <- gp_df %>% filter(Secondary_Assist_Name == input$ply_player)
+      gp4 <- gp_df %>% filter(Rebound_Name == input$ply_player)
+      gp5 <- gp_df %>% filter(FO_Home_Name == input$ply_player)
+      gp6 <- gp_df %>% filter(FO_Away_Name == input$ply_player)
+      gp7 <- gp_df %>% filter(Home_Goalie_Name == input$ply_player)
+      gp8 <- gp_df %>% filter(Away_Goalie_Name == input$ply_player)
+      competitions <- unique(c(gp1$Competition, gp2$Competition, gp3$Competition, gp4$Competition, 
+                               gp5$Competition, gp6$Competition, gp7$Competition, gp8$Competition))
+      
+      pickerInput(inputId = "ply_comp", label = "", 
+                  choices = c("Cumulative", competitions), 
+                  selected = "Cumulative")
+      
+    }
   })
   
   ##### PLY: Player Title #####
@@ -6110,7 +6377,15 @@ server <- function(input, output, session) {
     if(length(input$ply_player) > 0) {
       if(lastest_submit$Current_Submission != "Ind Game") {
         
-        gp_df <- df_master_fltr()
+        gp_df <- df_master
+        
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
+            gp_df <- gp_df %>%
+              filter(Competition %in% input$ply_comp)
+          }
+        }
+        
         gp1 <- gp_df %>% filter(Player1_Name == input$ply_player)
         gp2 <- gp_df %>% filter(Primary_Assist_Name == input$ply_player)
         gp3 <- gp_df %>% filter(Secondary_Assist_Name == input$ply_player)
@@ -6129,7 +6404,7 @@ server <- function(input, output, session) {
   
   output$ply_bars <- renderUI({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         fluidPage(
           fluidRow(
             column(
@@ -6177,7 +6452,7 @@ server <- function(input, output, session) {
   
   output$ply_plots <- renderUI({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         fluidRow(
           fluidRow(
             column(
@@ -6257,8 +6532,25 @@ server <- function(input, output, session) {
   
   output$ply_shotcont_title <- renderText({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player))
+      
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6309,8 +6601,24 @@ server <- function(input, output, session) {
   output$ply_shotcont <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6437,8 +6745,25 @@ server <- function(input, output, session) {
   
   output$ply_shooting_profile_title <- renderText({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & Player1_Name == input$ply_player)
+      
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6489,8 +6814,24 @@ server <- function(input, output, session) {
   output$ply_shooting_profile <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & Player1_Name == input$ply_player)
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6646,8 +6987,24 @@ server <- function(input, output, session) {
   output$ply_shooting_profile_poss <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & Player1_Name == input$ply_player)
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6770,8 +7127,24 @@ server <- function(input, output, session) {
   output$ply_shooting_profile_create <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Shot" & Player1_Name == input$ply_player)
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6903,19 +7276,27 @@ server <- function(input, output, session) {
   
   output$ply_reb_title <- renderText({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
       
-      if(length(unique(df_master_fltr()$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse((Home_Team == Team) & (Rebound_Type == "Offensive"), player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+               Away_Team = ifelse((Away_Team == Team) & (Rebound_Type == "Offensive"), player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+        mutate(Team = ifelse(Rebound_Type == "Offensive", player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -6966,19 +7347,26 @@ server <- function(input, output, session) {
   output$ply_reb <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
-      
-      if(length(unique(df_master_fltr()$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(Rebound_Type %in% c("Offensive", "Defensive") & Rebound_Name == input$ply_player)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse((Home_Team == Team) & (Rebound_Type == "Offensive"), player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+               Away_Team = ifelse((Away_Team == Team) & (Rebound_Type == "Offensive"), player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+        mutate(Team = ifelse(Rebound_Type == "Offensive", player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7094,8 +7482,25 @@ server <- function(input, output, session) {
   
   output$ply_to_title <- renderText({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Turnover" & Player1_Name == input$ply_player)
+      
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Turnover" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Turnover" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7149,8 +7554,25 @@ server <- function(input, output, session) {
   
   output$ply_to <- renderPlotly({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(Event_Type == "Turnover" & Player1_Name == input$ply_player)
+      
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(Event_Type == "Turnover" & Player1_Name == input$ply_player) %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                 Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      } else {
+        shot_df <- df_master_fltr() %>% 
+          filter(Event_Type == "Turnover" & Player1_Name == input$ply_player) %>% 
+          mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+      }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7291,21 +7713,30 @@ server <- function(input, output, session) {
   output$ply_goalie_saveper_title <- renderText({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-        filter(Net_Location %in% shot_on)
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7356,21 +7787,30 @@ server <- function(input, output, session) {
   output$ply_goalie_saveper <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-        filter(Net_Location %in% shot_on)
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7493,21 +7933,30 @@ server <- function(input, output, session) {
   output$ply_goalie_control_title <- renderText({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-        filter(Net_Location %in% shot_on)
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7558,21 +8007,30 @@ server <- function(input, output, session) {
   output$ply_goalie_control <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-        filter(Net_Location %in% shot_on)
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+          filter(Net_Location %in% shot_on)
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7693,20 +8151,29 @@ server <- function(input, output, session) {
   
   output$ply_goalie_profile_title <- renderText({
     if(length(input$ply_strength) > 0) {
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7757,20 +8224,28 @@ server <- function(input, output, session) {
   output$ply_goalie_profile <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -7926,20 +8401,28 @@ server <- function(input, output, session) {
   output$ply_goalie_profile_poss <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -8059,20 +8542,28 @@ server <- function(input, output, session) {
   output$ply_goalie_profile_create <- renderPlotly({
     if(length(input$ply_strength) > 0) {
       
-      shot_df <- df_master_fltr() %>% 
-        filter(!is.na(Result)) %>% 
-        filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
-      
-      if(length(unique(shot_df$Game)) > 1) {
-        shot_df <- shot_df %>% 
-          mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                 Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                 Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+      if(lastest_submit$Current_Submission != "Ind Game") {
+        shot_df <- df_master %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       } else {
-        shot_df <- shot_df %>% 
-          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        shot_df <- df_master_fltr() %>% 
+          filter(!is.na(Result)) %>% 
+          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player))
       }
+      
+      if(length(input$ply_comp) > 0) {
+        if(input$ply_comp != "Cumulative") {
+          shot_df <- shot_df %>%
+            filter(Competition %in% input$ply_comp)
+        }
+      }
+      
+      shot_df <- shot_df %>% 
+        mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+               Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+        mutate(Team = "Opponent") %>% 
+        mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
       
       # Filter down by strength input
       if(input$ply_strength == "Even-Strength") {
@@ -8213,7 +8704,7 @@ server <- function(input, output, session) {
   
   output$ply_goal_title <- renderText({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         paste(toupper(input$ply_player), "SHOTS AGAINST: GOAL VIEW")
       } else {
         paste(toupper(input$ply_player), "SHOTS: GOAL VIEW")
@@ -8226,22 +8717,163 @@ server <- function(input, output, session) {
   output$ply_goal <- renderPlotly({
     if(length(input$ply_player) > 0) {
       
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         # Shots against if it's a goalie
-        shot_df <- df_master_fltr() %>% 
-          filter(!is.na(Result)) %>% 
-          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
-        
-        if(length(unique(shot_df$Game)) > 1) {
-          shot_df <- shot_df %>% 
-            mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                   Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                   Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
+          df_mf <- df_mf %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != "Opponent"] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
         } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
           shot_df <- shot_df %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        }
+        
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
+            shot_df <- shot_df %>%
+              filter(Competition %in% input$ply_comp)
+          }
         }
         
         # Filter down by strength input
@@ -8275,14 +8907,152 @@ server <- function(input, output, session) {
         }
       } else {
         # shots by the player if it's a runner
-        shot_df <- df_master_fltr() %>% 
-          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                   Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                 (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                   (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                     (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
+        } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot") %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+        }
         
-        if(length(unique(df_master_fltr()$Game)) > 1) {
-          if(input$ply_season != "Cumulative") {
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
             shot_df <- shot_df %>%
-              filter(Season %in% input$ply_season)
+              filter(Competition %in% input$ply_comp)
           }
         }
         
@@ -8315,7 +9085,7 @@ server <- function(input, output, session) {
             }
           }
         }
-      }
+      } 
       
       # Filter by click selections
       if(ply_goal_sel$Net_Location[1] != "none"){
@@ -8494,7 +9264,7 @@ server <- function(input, output, session) {
   
   output$ply_field_title <- renderText({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         paste(toupper(input$ply_player), "SHOTS AGAINST: FIELD VIEW")
       } else {
         paste(toupper(input$ply_player), "SHOTS: FIELD VIEW")
@@ -8507,22 +9277,163 @@ server <- function(input, output, session) {
   output$ply_field <- renderPlotly({
     if(length(input$ply_player) > 0){
       
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         # Shots against if it's a goalie
-        shot_df <- df_master_fltr() %>% 
-          filter(!is.na(Result)) %>% 
-          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
-        
-        if(length(unique(shot_df$Game)) > 1) {
-          shot_df <- shot_df %>% 
-            mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                   Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                   Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
+          df_mf <- df_mf %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != "Opponent"] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
         } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
           shot_df <- shot_df %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        }
+        
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
+            shot_df <- shot_df %>%
+              filter(Competition %in% input$ply_comp)
+          }
         }
         
         # Filter down by strength input
@@ -8556,14 +9467,152 @@ server <- function(input, output, session) {
         }
       } else {
         # shots by the player if it's a runner
-        shot_df <- df_master_fltr() %>% 
-          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                   Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                 (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                   (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                     (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
+        } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot") %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+        }
         
-        if(length(unique(df_master_fltr()$Game)) > 1) {
-          if(input$ply_season != "Cumulative") {
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
             shot_df <- shot_df %>%
-              filter(Season %in% input$ply_season)
+              filter(Competition %in% input$ply_comp)
           }
         }
         
@@ -8762,7 +9811,7 @@ server <- function(input, output, session) {
   
   output$ply_shotangle_title <- renderText({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         paste(toupper(input$ply_player), "SHOTS AGAINST: SHOT ANGLE VIEW")
       } else {
         paste(toupper(input$ply_player), "SHOTS: SHOT ANGLE VIEW")
@@ -8775,22 +9824,163 @@ server <- function(input, output, session) {
   output$ply_shotangle <- renderPlotly({
     if(length(input$ply_player) > 0) {
       
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         # Shots against if it's a goalie
-        shot_df <- df_master_fltr() %>% 
-          filter(!is.na(Result)) %>% 
-          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
-        
-        if(length(unique(shot_df$Game)) > 1) {
-          shot_df <- shot_df %>% 
-            mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                   Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                   Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
+          df_mf <- df_mf %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == "Opponent"] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != "Opponent") & (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != "Opponent"] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != "Opponent" &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
         } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+          
           shot_df <- shot_df %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                   Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+            mutate(Team = "Opponent") %>% 
             mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        }
+        
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
+            shot_df <- shot_df %>%
+              filter(Competition %in% input$ply_comp)
+          }
         }
         
         # Filter down by strength input
@@ -8824,14 +10014,152 @@ server <- function(input, output, session) {
         }
       } else {
         # shots by the player if it's a runner
-        shot_df <- df_master_fltr() %>% 
-          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          
+          ### Copies in the field bin creating code from the data selection section for when we need to look at the whole data set
+          
+          df_mf <- df_master %>% 
+            filter(Event_Type == "Shot" & (Player1_Name == input$ply_player | Primary_Assist_Name == input$ply_player | Secondary_Assist_Name == input$ply_player)) %>% 
+            mutate(Home_Team = ifelse(Home_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent"), 
+                   Away_Team = ifelse(Away_Team == Team, player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent")) %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+          
+          # need to go game by game and figure out which side of the floor each side started on and played the 3rd quarter on to figure out coord switching
+          df_mf_sides <- df_mf %>% 
+            filter(!is.na(Team)) %>% 
+            group_by(Game, Team) %>% 
+            summarise(Field_Side = ifelse(length(which(Location1_x[Quarter %in% c(1, 3)] < 0.5)) > length(which(Location1_x[Quarter %in% c(1, 3)] > 0.5)), "West", "East"))
+          
+          # normalize the event locations so that they're always with respect to the same side of the field for either team
+          # the goal is to get it so that side1 is on the east side of the field and side2 is on the west side of the field
+          for(i in unique(df_mf$Game)) {
+            for(j in which(df_mf$Game == i)[which(!is.na(df_mf$Team[which(df_mf$Game == i)]))]) {
+              
+              if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                 (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                if(df_mf$Quarter[j] == 2) {
+                  df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                  df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                  df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                  df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                } else {
+                  if(df_mf$Quarter[j] == 4) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  }
+                }
+              } else {
+                if((df_mf$Team[j] == player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                   (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team == player_list()$Team[player_list()$Player_Name == input$ply_player]] == "West")) {
+                  if(df_mf$Quarter[j] == 1) {
+                    df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                    df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                    df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                    df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                  } else {
+                    if(df_mf$Quarter[j] == 3) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 5) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                } else {
+                  if((df_mf$Team[j] != player_list()$Team[player_list()$Player_Name == input$ply_player]) & 
+                     (df_mf_sides$Field_Side[df_mf_sides$Game == i & df_mf_sides$Team != player_list()$Team[player_list()$Player_Name == input$ply_player]] == "East")) {
+                    if(df_mf$Quarter[j] == 1) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 3) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      } else {
+                        if(df_mf$Quarter[j] == 5) {
+                          df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                          df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                          df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                          df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                        }
+                      }
+                    }
+                  } else {
+                    if(df_mf$Quarter[j] == 2) {
+                      df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                      df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                      df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                      df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                    } else {
+                      if(df_mf$Quarter[j] == 4) {
+                        df_mf$Location1_x[j] <- 0.5 + -1*(df_mf$Location1_x[j] - 0.5)
+                        df_mf$Location1_y[j] <- 0.5 + -1*(df_mf$Location1_y[j] - 0.5)
+                        df_mf$Location2_x[j] <- 0.5 + -1*(df_mf$Location2_x[j] - 0.5)
+                        df_mf$Location2_y[j] <- 0.5 + -1*(df_mf$Location2_y[j] - 0.5)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          # create a column with the binned shot locations for both sides
+          # WILL BREAK AND CAUSE AN ERROR IF THERE'S A PROBLEM WITH THE DATA
+          df_mf <- df_mf %>% 
+            mutate(Field_Location_Bin = "none")
+          
+          for(i in which(df_mf$Team == player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which(df_mf$Location1_x[i] >= fieldloc_bins$x_min &
+                                                   df_mf$Location1_x[i] < fieldloc_bins$x_max &
+                                                   df_mf$Location1_y[i] >= fieldloc_bins$y_min &
+                                                   df_mf$Location1_y[i] < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          for(i in which(df_mf$Team != player_list()$Team[player_list()$Player_Name == input$ply_player] &
+                         df_mf$Event == "Shot" &
+                         !is.na(df_mf$Location1_x) & !is.na(df_mf$Location1_y))) {
+            bin_found <- fieldloc_bins$Bin[which((0.5 + -1*(df_mf$Location1_x[i] - 0.5)) >= fieldloc_bins$x_min &
+                                                   (0.5 + -1*(df_mf$Location1_x[i] - 0.5)) < fieldloc_bins$x_max &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) >= fieldloc_bins$y_min &
+                                                   (0.5 + -1*(df_mf$Location1_y[i] - 0.5)) < fieldloc_bins$y_max)]
+            if(length(bin_found) == 1) {
+              df_mf$Field_Location_Bin[i] <- bin_found
+            } else {
+              break
+            }
+          }
+          
+          shot_df <- df_mf
+        } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot") %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+        }
         
-        if(length(unique(df_master_fltr()$Game)) > 1) {
-          if(input$ply_season != "Cumulative") {
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
             shot_df <- shot_df %>%
-              filter(Season %in% input$ply_season)
+              filter(Competition %in% input$ply_comp)
           }
         }
         
@@ -9025,23 +10353,32 @@ server <- function(input, output, session) {
   
   output$ply_timestamps <- renderDataTable({
     if(length(input$ply_player) > 0) {
-      if((input$ply_player %in% df_master_fltr()$Home_Goalie_Name) | (input$ply_player %in% df_master_fltr()$Away_Goalie_Name)) {
+      if((input$ply_player %in% df_master$Home_Goalie_Name) | (input$ply_player %in% df_master$Away_Goalie_Name)) {
         # Shots against if it's a goalie
-        shot_df <- df_master_fltr() %>% 
-          filter(!is.na(Result)) %>% 
-          filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
-        
-        if(length(unique(shot_df$Game)) > 1) {
-          shot_df <- shot_df %>% 
-            mutate(Team = ifelse(Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Team), 
-                   Home_Team = ifelse(Home_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Home_Team), 
-                   Away_Team = ifelse(Away_Team != player_list()$Team[player_list()$Player_Name == input$ply_player], "Opponent", Away_Team)) %>% 
-            mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          shot_df <- df_master %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
         } else {
-          shot_df <- shot_df %>% 
-            mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
+          shot_df <- df_master_fltr() %>% 
+            filter(!is.na(Result)) %>% 
+            filter((Home_Team == Team & Away_Goalie_Name == input$ply_player) | (Away_Team == Team & Home_Goalie_Name == input$ply_player)) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
         }
+        
+        if(length(input$ply_comp) > 0) {
+          if(input$ply_comp != "Cumulative") {
+            shot_df <- shot_df %>%
+              filter(Competition %in% input$ply_comp)
+          }
+        }
+        
+        shot_df <- shot_df %>% 
+          mutate(Home_Team = ifelse(Home_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player]), 
+                 Away_Team = ifelse(Away_Team == Team, "Opponent", player_list()$Team[player_list()$Player_Name == input$ply_player])) %>% 
+          mutate(Team = "Opponent") %>% 
+          mutate(Defensive_Team = ifelse(Team == Home_Team, Away_Team, Home_Team))
         
         # Filter down by strength input
         if(input$ply_strength == "Even-Strength") {
@@ -9074,15 +10411,16 @@ server <- function(input, output, session) {
         }
       } else {
         # shots by the player if it's a runner
-        shot_df <- df_master_fltr() %>% 
-          filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
-          filter(Empty_Net == "No" & Shot_Type != "Penalty Shot")
-        
-        if(length(unique(df_master_fltr()$Game)) > 1) {
-          if(input$ply_season != "Cumulative") {
-            shot_df <- shot_df %>%
-              filter(Season %in% input$ply_season)
-          }
+        if(lastest_submit$Current_Submission != "Ind Game") {
+          shot_df <- df_master %>% 
+            filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot") %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
+        } else {
+          shot_df <- df_master_fltr() %>% 
+            filter(Event_Type == "Shot" & Player1_Name == input$ply_player) %>% 
+            filter(Empty_Net == "No" & Shot_Type != "Penalty Shot") %>% 
+            mutate(Team = player_list()$Team[player_list()$Player_Name == input$ply_player])
         }
         
         # Filter down by strength input
